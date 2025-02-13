@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON to Kotlin Converter</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .container {
+            flex: 1;
+        }
+        footer {
+            text-align: center;
+            padding: 10px;
+            background-color: #f8f9fa;
+            margin-top: 20px;
+        }
+        .history-item {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .history-item:hover {
+            background-color: #f8f9fa;
+        }
+        .timestamp {
+            font-size: 0.8em;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h2 class="text-center mb-4">JSON to Kotlin Converter</h2>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="mb-3">
+                    <label class="form-label">Class Name:</label>
+                    <input type="text" id="className" class="form-control" placeholder="Enter main class name">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">JSON Input:</label>
+                    <textarea id="jsonInput" class="form-control" rows="6" placeholder="Enter JSON here"></textarea>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="useParcelable">
+                    <label class="form-check-label">Implement Parcelable</label>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary" onclick="convertJsonToKotlin()">Convert</button>
+                    <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+                </div>
+
+                <div class="mt-4">
+                    <h4>Generated Kotlin Code:</h4>
+                    <pre id="output" class="border p-3 bg-light"></pre>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-success" onclick="copyToClipboard()">📋 Copy</button>
+                        <button class="btn btn-info" onclick="downloadFile()">⬇ Download</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Conversion History</h5>
+                        <button class="btn btn-sm btn-outline-danger" onclick="clearHistory()">Clear History</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="historyList" class="list-group">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        &copy; 2025 JSON to Kotlin Converter. All Rights Reserved.
+    </footer>
+
+    <script>
+        // History management
+        function saveToHistory(className, jsonInput, kotlinOutput) {
+            const history = JSON.parse(localStorage.getItem('conversionHistory') || '[]');
+            const newEntry = {
+                id: Date.now(),
+                timestamp: new Date().toISOString(),
+                className,
+                jsonInput,
+                kotlinOutput
+            };
+            
+            // Add new entry at the beginning
+            history.unshift(newEntry);
+            
+            // Keep only the last 10 entries
+            if (history.length > 10) {
+                history.pop();
+            }
+            
+            localStorage.setItem('conversionHistory', JSON.stringify(history));
+            updateHistoryDisplay();
+        }
+
+        function updateHistoryDisplay() {
+            const history = JSON.parse(localStorage.getItem('conversionHistory') || '[]');
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '';
+
+            history.forEach(entry => {
+                const date = new Date(entry.timestamp);
+                const formattedDate = date.toLocaleString();
+                
+                const item = document.createElement('div');
+                item.className = 'list-group-item history-item';
+                item.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <strong>${entry.className}</strong>
+                            <div class="timestamp">${formattedDate}</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" 
+                                onclick="deleteHistoryItem(${entry.id}, event)">×</button>
+                    </div>
+                `;
+                
+                item.addEventListener('click', (e) => {
+                    if (e.target.tagName !== 'BUTTON') {
+                        loadHistoryItem(entry);
+                    }
+                });
+                
+                historyList.appendChild(item);
+            });
+        }
+
+        function loadHistoryItem(entry) {
+            document.getElementById('className').value = entry.className;
+            document.getElementById('jsonInput').value = entry.jsonInput;
+            document.getElementById('output').innerText = entry.kotlinOutput;
+        }
+
+        function deleteHistoryItem(id, event) {
+            event.stopPropagation();
+            const history = JSON.parse(localStorage.getItem('conversionHistory') || '[]');
+            const updatedHistory = history.filter(entry => entry.id !== id);
+            localStorage.setItem('conversionHistory', JSON.stringify(updatedHistory));
+            updateHistoryDisplay();
+        }
+
+        function clearHistory() {
+            if (confirm('Are you sure you want to clear all conversion history?')) {
+                localStorage.removeItem('conversionHistory');
+                updateHistoryDisplay();
+            }
+        }
+
+        // Modified convertJsonToKotlin to include history
+        function convertJsonToKotlin() {
+            const className = document.getElementById("className").value.trim();
+            const jsonInput = document.getElementById("jsonInput").value.trim();
+            const useParcelable = document.getElementById("useParcelable").checked;
+            const output = document.getElementById("output");
+
+            if (!className || !jsonInput) {
+                output.innerText = "❌ Please enter both class name and JSON data.";
+                return;
+            }
+
+            try {
+                const jsonData = JSON.parse(jsonInput);
+                let kotlinClasses = new Map();
+                generateKotlinClass(className, jsonData, kotlinClasses, useParcelable);
+
+                const kotlinOutput = Array.from(kotlinClasses.values()).join("\n\n");
+                output.innerText = kotlinOutput;
+
+                // Save to history
+                saveToHistory(className, jsonInput, kotlinOutput);
+            } catch (error) {
+                output.innerText = "❌ Invalid JSON format.";
+            }
+        }
+
+        // Load history on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            updateHistoryDisplay();
+        });
+        
+        function generateKotlinClass(className, jsonData, kotlinClasses, useParcelable) {
+            if (kotlinClasses.has(className)) return;
+        
+            // Helper function to check if object should be treated as a Map
+            function shouldBeMap(obj) {
+                if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;
+                
+                // Check first key for ID-like pattern (uppercase letters and numbers)
+                const firstKey = Object.keys(obj)[0];
+                return firstKey && /^[A-Z0-9_]+$/.test(firstKey);
+            }
+        
+            // Helper function to get the type of Map values
+            function getMapValueType(obj) {
+                const firstKey = Object.keys(obj)[0];
+                const sample = obj[firstKey];
+                
+                if (Array.isArray(sample)) {
+                    const subClassName = capitalize(className + firstKey);
+                    if (sample[0]) {
+                        generateKotlinClass(subClassName, sample[0], kotlinClasses, useParcelable);
+                    }
+                    return `ArrayList<${subClassName}>`;
+                } else if (typeof sample === 'object' && sample !== null) {
+                    const subClassName = capitalize(className + firstKey);
+                    generateKotlinClass(subClassName, sample, kotlinClasses, useParcelable);
+                    return subClassName;
+                }
+                return 'String';
+            }
+        
+            let kotlinClass = "";
+            if (useParcelable) {
+                kotlinClass += "import android.os.Parcel\nimport android.os.Parcelable\n";
+            }
+            kotlinClass += "import java.io.Serializable\n\n";
+        
+            kotlinClass += `class ${className}() : Serializable${useParcelable ? ", Parcelable" : ""} {\n`;
+        
+            // Generate properties
+            for (const key in jsonData) {
+                const value = jsonData[key];
+                let type;
+                let defaultValue;
+        
+                if (shouldBeMap(value)) {
+                    const valueType = getMapValueType(value);
+                    type = `Map<String, ${valueType}>`;
+                    defaultValue = "mutableMapOf()";
+                } else if (value === null) {
+                    type = "String?";
+                    defaultValue = "null";
+                } else if (typeof value === "number") {
+                    type = Number.isInteger(value) ? "Int" : "Double";
+                    defaultValue = "0";
+                } else if (typeof value === "boolean") {
+                    type = "Boolean";
+                    defaultValue = "false";
+                } else if (Array.isArray(value)) {
+                    const subClassName = capitalize(key);
+                    type = `ArrayList<${subClassName}>`;
+                    defaultValue = "ArrayList()";
+                    if (value[0]) {
+                        generateKotlinClass(subClassName, value[0], kotlinClasses, useParcelable);
+                    }
+                } else if (typeof value === "object") {
+                    const subClassName = capitalize(key);
+                    type = subClassName;
+                    defaultValue = `${subClassName}()`;
+                    generateKotlinClass(subClassName, value, kotlinClasses, useParcelable);
+                } else {
+                    type = "String";
+                    defaultValue = '""';
+                }
+        
+                kotlinClass += `    var ${key}: ${type} = ${defaultValue}\n`;
+            }
+        
+            if (useParcelable) {
+                // Constructor from Parcel
+                kotlinClass += `\n    constructor(parcel: Parcel) : this() {\n`;
+                for (const key in jsonData) {
+                    const value = jsonData[key];
+                    let readStatement;
+        
+                    if (shouldBeMap(value)) {
+                        const valueType = getMapValueType(value);
+                        readStatement = `mutableMapOf<String, ${valueType}>().also { map ->\n` +
+                            `            val size = parcel.readInt()\n` +
+                            `            repeat(size) {\n` +
+                            `                val key = parcel.readString() ?: ""\n`;
+                        
+                        if (Array.isArray(value[Object.keys(value)[0]])) {
+                            readStatement += `                val list = ArrayList<${valueType.replace("ArrayList<", "").replace(">", "")}>()\n` +
+                                `                parcel.readList(list, ${valueType.replace("ArrayList<", "").replace(">", "")}::class.java.classLoader)\n` +
+                                `                map[key] = list\n`;
+                        } else if (valueType !== "String") {
+                            readStatement += `                val value = parcel.readParcelable(${valueType}::class.java.classLoader) ?: ${valueType}()\n` +
+                                `                map[key] = value\n`;
+                        } else {
+                            readStatement += `                val value = parcel.readString() ?: ""\n` +
+                                `                map[key] = value\n`;
+                        }
+                        
+                        readStatement += `            }\n        }`;
+                    } else if (value === null) {
+                        readStatement = `parcel.readString()`;
+                    } else if (typeof value === "number") {
+                        readStatement = Number.isInteger(value) ? `parcel.readInt()` : `parcel.readDouble()`;
+                    } else if (typeof value === "boolean") {
+                        readStatement = `parcel.readInt() != 0`;
+                    } else if (Array.isArray(value)) {
+                        const subClassName = capitalize(key);
+                        readStatement = `ArrayList<${subClassName}>().apply {\n` +
+                            `            parcel.readList(this, ${subClassName}::class.java.classLoader)\n` +
+                            `        }`;
+                    } else if (typeof value === "object") {
+                        const subClassName = capitalize(key);
+                        readStatement = `parcel.readParcelable(${subClassName}::class.java.classLoader) ?: ${subClassName}()`;
+                    } else {
+                        readStatement = `parcel.readString() ?: ""`;
+                    }
+        
+                    kotlinClass += `        ${key} = ${readStatement}\n`;
+                }
+                kotlinClass += "    }\n";
+        
+                // writeToParcel
+                kotlinClass += `\n    override fun writeToParcel(parcel: Parcel, flags: Int) {\n`;
+                for (const key in jsonData) {
+                    const value = jsonData[key];
+                    let writeStatement;
+        
+                    if (shouldBeMap(value)) {
+                        writeStatement = `parcel.writeInt(${key}.size)\n` +
+                            `        ${key}.forEach { (key, value) ->\n` +
+                            `            parcel.writeString(key)\n`;
+                        
+                        if (Array.isArray(value[Object.keys(value)[0]])) {
+                            writeStatement += `            parcel.writeList(value)\n`;
+                        } else if (getMapValueType(value) !== "String") {
+                            writeStatement += `            parcel.writeParcelable(value, flags)\n`;
+                        } else {
+                            writeStatement += `            parcel.writeString(value)\n`;
+                        }
+                        
+                        writeStatement += `        }`;
+                    } else if (value === null) {
+                        writeStatement = `writeString(${key})`;
+                    } else if (typeof value === "number") {
+                        writeStatement = Number.isInteger(value) ? `writeInt(${key})` : `writeDouble(${key})`;
+                    } else if (typeof value === "boolean") {
+                        writeStatement = `writeInt(if (${key}) 1 else 0)`;
+                    } else if (Array.isArray(value)) {
+                        writeStatement = `writeList(${key})`;
+                    } else if (typeof value === "object") {
+                        writeStatement = `writeParcelable(${key}, flags)`;
+                    } else {
+                        writeStatement = `writeString(${key})`;
+                    }
+        
+                    kotlinClass += `        parcel.${writeStatement}\n`;
+                }
+                kotlinClass += "    }\n";
+        
+                // describeContents
+                kotlinClass += `\n    override fun describeContents(): Int = 0\n`;
+        
+                // CREATOR
+                kotlinClass += `\n    companion object CREATOR : Parcelable.Creator<${className}> {\n`;
+                kotlinClass += `        override fun createFromParcel(parcel: Parcel): ${className} = ${className}(parcel)\n`;
+                kotlinClass += `        override fun newArray(size: Int): Array<${className}?> = arrayOfNulls(size)\n`;
+                kotlinClass += "    }\n";
+            }
+        
+            kotlinClass += "}";
+            kotlinClasses.set(className, kotlinClass);
+        }
+        
+        function determineMapValueType(value) {
+            if (value === null) return "String?";
+            if (typeof value === "number") return Number.isInteger(value) ? "Int" : "Double";
+            if (typeof value === "boolean") return "Boolean";
+            if (Array.isArray(value)) {
+                if (value.length > 0) {
+                    const itemType = capitalize(Object.keys(value[0])[0]);
+                    return `ArrayList<${itemType}>`;
+                }
+                return "ArrayList<Any>";
+            }
+            if (typeof value === "object") {
+                return capitalize(Object.keys(value)[0]);
+            }
+            return "String";
+        }
+        
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function copyToClipboard() {
+            const output = document.getElementById("output").innerText;
+            if (!output.trim()) return;
+
+            navigator.clipboard.writeText(output).then(() => {
+                alert("✅ Kotlin code copied to clipboard!");
+            }).catch(err => {
+                alert("❌ Failed to copy!");
+                console.error(err);
+            });
+        }
+
+        function downloadFile() {
+            const output = document.getElementById("output").innerText;
+            if (!output.trim()) return;
+
+            const blob = new Blob([output], { type: "text/plain" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "GeneratedKotlin.kt";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function clearAll() {
+            document.getElementById("className").value = "";
+            document.getElementById("jsonInput").value = "";
+            document.getElementById("output").innerText = "";
+            document.getElementById("useParcelable").checked = false;
+        }
+    </script>
+</body>
+</html>
+
+
